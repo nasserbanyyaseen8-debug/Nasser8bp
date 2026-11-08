@@ -233,7 +233,10 @@ static void renderFrame() {
     UIWindow *cw = UIApplication.sharedApplication.keyWindow;
     if (cw && (cw.bounds.size.width != gScreen.w || cw.bounds.size.height != gScreen.h)) calibrate();
     id<CAMetalDrawable> dr = [gLayer nextDrawable]; if (!dr) return;
-    ImGui_ImplMetal_NewFrame();
+    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+    rp.colorAttachments[0].texture = dr.texture;
+    rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    ImGui_ImplMetal_NewFrame(rp);
     ImGui::NewFrame();
     std::vector<nsr::Ball> balls = readState();
     // auto-play: choose via exact prediction, execute, never foul
@@ -251,9 +254,6 @@ static void renderFrame() {
     drawPrediction(dl, balls);
     ImGui::Render();
     id<MTLCommandBuffer> cb = [gQueue commandBuffer];
-    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-    rp.colorAttachments[0].texture = dr.texture;
-    rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
     id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
     ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
     [enc endEncoding]; [cb presentDrawable:dr]; [cb commit];
