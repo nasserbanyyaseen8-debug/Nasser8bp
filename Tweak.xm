@@ -11,6 +11,11 @@
 #include "src/Engine.hpp"
 #include "src/AutoBounds.hpp"
 
+// compatibility: some ImGui builds lack TabActive
+#ifndef ImGuiCol_TabActive
+#define ImGuiCol_TabActive ImGuiCol_HeaderActive
+#endif
+
 // ---------------------------------------------------------------- game adapter
 // Offsets must match the installed game version. Fill these (or the runtime
 // scanner) once; everything else (prediction/auto-play/menu) is version-agnostic.
@@ -228,7 +233,7 @@ static void renderFrame() {
     UIWindow *cw = UIApplication.sharedApplication.keyWindow;
     if (cw && (cw.bounds.size.width != gScreen.w || cw.bounds.size.height != gScreen.h)) calibrate();
     id<CAMetalDrawable> dr = [gLayer nextDrawable]; if (!dr) return;
-    ImGui_ImplMetal_NewFrame(dr.texture);
+    ImGui_ImplMetal_NewFrame();
     ImGui::NewFrame();
     std::vector<nsr::Ball> balls = readState();
     // auto-play: choose via exact prediction, execute, never foul
@@ -259,7 +264,7 @@ static void linkTick(CADisplayLink *l) { renderFrame(); }
 // ---------------------------------------------------------------- install
 static void installOverlay() {
     @try {
-        gDevice = MTLCreateSystemWideDevice();
+        gDevice = MTLCreateSystemDefaultDevice();
         if (!gDevice) return;
         gQueue = [gDevice newCommandQueue];
         if (!gQueue) return;
