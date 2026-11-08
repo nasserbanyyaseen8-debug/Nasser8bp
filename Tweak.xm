@@ -11,12 +11,9 @@
 #include "src/Engine.hpp"
 #include "src/AutoBounds.hpp"
 
-// تعريف توافقية الإصدارات الحديثة لـ ImGui
-#ifndef ImGuiCol_TabActive
-#define ImGuiCol_TabActive ImGuiCol_HeaderActive
-#endif
-
 // ---------------------------------------------------------------- game adapter
+// Offsets must match the installed game version. Fill these (or the runtime
+// scanner) once; everything else (prediction/auto-play/menu) is version-agnostic.
 struct Offsets {
     uintptr_t ballArray = 0;     // NSArray/NSMutableArray of ball objects
     uintptr_t ballX = 0, ballY = 0;   // ivar offsets inside a ball object
@@ -31,8 +28,9 @@ static Offsets gOff;
 static std::vector<nsr::Ball> readState() {
     std::vector<nsr::Ball> out;
     if (!gOff.valid()) return out;
+    // Read live balls through the adapter. Kept defensive: any failure => empty.
     @try {
-        id arr = nil; 
+        id arr = nil; // resolved from game base + gOff.ballArray by the loader hook
         if (![arr isKindOfClass:[NSArray class]]) return out;
         for (id b in (NSArray *)arr) {
             nsr::Ball x{};
@@ -66,6 +64,7 @@ static double gNextThink = 0;
 static id<MTLDevice> gDevice;
 static CAMetalLayer *gLayer;
 static id<MTLCommandQueue> gQueue;
+static CADisplayLink *gLink;
 
 // ------------------------------------------------- automatic screen calibration
 static nsr::ScreenInfo gScreen;
@@ -89,7 +88,7 @@ static nsr::Rect findRenderViewFrame(UIView *v, UIView *root) {
 }
 static nsr::Rect scanFelt(UIView *root) {
     UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
-    fmt.scale = 1; 
+    fmt.scale = 1; // pixels == points for the scan buffer
     UIGraphicsImageRenderer *ren = [[UIGraphicsImageRenderer alloc] initWithSize:root.bounds.size format:fmt];
     UIImage *img = [ren imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
         [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:NO];
@@ -110,7 +109,7 @@ static void calibrate() {
     UIEdgeInsets si = w.safeAreaInsets;
     gScreen.safeL = si.left; gScreen.safeT = si.top; gScreen.safeR = si.right; gScreen.safeB = si.bottom;
     nsr::Rect vf = findRenderViewFrame(w, w);
-    nsr::Rect scan = vf.ok ? nsr::Rect{} : scanFelt(w);
+    nsr::Rect scan{}; // no screen-capture: drawViewHierarchyInRect crashes Metal/Unity games
     gTable = nsr::autoDetect(gScreen, vf, scan);
     gTf = nsr::makeTransform(gTable);
     if (gLayer) gLayer.frame = w.bounds;
@@ -150,41 +149,33 @@ static void drawPrediction(ImDrawList *dl, const std::vector<nsr::Ball> &balls) 
     if (!gPredict || balls.empty() || !gTable.ok) return;
     nsr::Record r = nsr::predict(balls, gAim);
     auto P = [&](double x, double y) { nsr::Vec v = nsr::toScreen(gTf, x, y); return ImVec2(v.x, v.y); };
-    
     // cue path (white)
     if (r.paths.count(0)) {
         auto &p = r.paths[0];
-        for (size_t i = 1; i < p.size(); i++) {
-            dl->AddLine(P(p[i-1].x, p[i-1].y), P(p[i].x, p[i].y), IM_COL32(255,255,255,200), gLineWidth);
-        }
+        for (size_t i = 1; i < p.size(); i++) dl->AddLine(P(p[i-1].x, p[i-1].y), P(p[i].x, p[i].y), IM_COL32(255,255,255,200), gLineWidth);
     }
-    
     int fc = r.firstContact;
     if (fc >= 0 && r.paths.count(fc)) {
         unsigned c = gColorLine ? nsr::COLORS[fc] : 0xffffff;
         ImU32 uc = IM_COL32((c>>16)&255,(c>>8)&255,c&255,255);
         auto &p = r.paths[fc];
-        for (size_t i = 1; i < p.size(); i++) {
-            dl->AddLine(P(p[i-1].x,p[i-1].y), P(p[i].x,p[i].y), uc, gLineWidth);
-        }
+        for (size_t i = 1; i < p.size(); i++) dl->AddLine(P(p[i-1].x,p[i-1].y), P(p[i].x,p[i].y), uc, gLineWidth);
         if (gGhost) {
-            for (auto &b : r.rest) {
-                if (b.id == fc && b.on) {
-                    dl->AddCircle(P(b.x,b.y), nsr::R*gTf.scale, uc, 24, gLineWidth);
-                    dl->AddCircleFilled(P(b.x,b.y), nsr::R*gTf.scale*0.4f, (uc & 0x00ffffff) | 0x80000000);
-                }
+            for (auto &b : r.rest) if (b.id == fc && b.on) {
+                dl->AddCircle(P(b.x,b.y), nsr::R*gTf.scale, uc, 24, gLineWidth);      // stop circle, ball-shaped
+                dl->AddCircleFilled(P(b.x,b.y), nsr::R*gTf.scale*0.4f, (uc & 0x00ffffff) | 0x80000000);
             }
         }
     }
 }
 
-// ---------------------------------------------------------------- menu
+// ---------------------------------------------------------------- menu (redesigned, reordered)
 static void drawMenu(const std::vector<nsr::Ball> &balls) {
     ImGui::SetNextWindowSize(ImVec2(380, 540), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("NASSER 8BP", &gMenuOpen, ImGuiWindowFlags_NoCollapse)) { ImGui::End(); return; }
     ImGui::TextColored(col(0xf0b429), "NASSER"); ImGui::SameLine(); ImGui::TextDisabled("8 Ball Pool");
     ImGui::Separator(); ImGui::Spacing();
-    
+    // mode buttons (new): Aggressive / Safe / Human
     ImGui::TextDisabled("AUTO-PLAY MODE");
     float bw = (ImGui::GetContentRegionAvail().x - 16) / 3;
     const char *labels[3] = { "Fierce", "Safe", "Human" };
@@ -196,16 +187,14 @@ static void drawMenu(const std::vector<nsr::Ball> &balls) {
         if (sel) ImGui::PopStyleColor(3);
     }
     ImGui::Spacing();
-    
+    // prominent start/stop
     ImGui::PushStyleColor(ImGuiCol_Button, gAuto ? col(0x8e2f3a) : col(0xf0b429));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, gAuto ? col(0xb0404c) : col(0xffd766));
     if (ImGui::Button(gAuto ? "STOP AUTO-PLAY" : "START AUTO-PLAY", ImVec2(-1, 40))) gAuto = !gAuto;
     ImGui::PopStyleColor(2);
-    
     ImGui::SliderFloat("Speed", &gSpeed, 0.4f, 3.0f, "%.1fx");
     ImGui::SliderFloat("Power", &gPower, 0.1f, 1.0f, "%.2f");
     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-    
     if (ImGui::BeginTabBar("##nsrtabs")) {
         if (ImGui::BeginTabItem("Prediction")) {
             ImGui::Checkbox("Enable Prediction", &gPredict);
@@ -234,19 +223,15 @@ static void drawMenu(const std::vector<nsr::Ball> &balls) {
 // ---------------------------------------------------------------- render loop
 static void renderFrame() {
     if (!gLayer || !gQueue) return;
+    if (!ImGui::GetCurrentContext()) return;
+    @try {
     UIWindow *cw = UIApplication.sharedApplication.keyWindow;
     if (cw && (cw.bounds.size.width != gScreen.w || cw.bounds.size.height != gScreen.h)) calibrate();
     id<CAMetalDrawable> dr = [gLayer nextDrawable]; if (!dr) return;
-    
-    MTLRenderPassDescriptor *renderPassDescriptor = [MTLRenderPassDescriptor renderPassDescriptor];
-    renderPassDescriptor.colorAttachments[0].texture = dr.texture;
-    renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionLoad;
-    renderPassDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
-    
-    ImGui_ImplMetal_NewFrame(renderPassDescriptor);
+    ImGui_ImplMetal_NewFrame(dr.texture);
     ImGui::NewFrame();
-    
     std::vector<nsr::Ball> balls = readState();
+    // auto-play: choose via exact prediction, execute, never foul
     if (gAuto && !balls.empty() && !nsr::moving(balls)) {
         double now = CACurrentMediaTime();
         if (now >= gNextThink) {
@@ -260,39 +245,47 @@ static void renderFrame() {
     ImDrawList *dl = ImGui::GetBackgroundDrawList();
     drawPrediction(dl, balls);
     ImGui::Render();
-    
     id<MTLCommandBuffer> cb = [gQueue commandBuffer];
-    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:renderPassDescriptor];
+    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+    rp.colorAttachments[0].texture = dr.texture;
+    rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
     ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
     [enc endEncoding]; [cb presentDrawable:dr]; [cb commit];
+    } @catch (...) { /* never crash the host game */ }
 }
+static void linkTick(CADisplayLink *l) { renderFrame(); }
 
 // ---------------------------------------------------------------- install
 static void installOverlay() {
-    gDevice = MTLCreateSystemDefaultDevice();
-    gQueue = [gDevice newCommandQueue];
-    UIWindow *w = UIApplication.sharedApplication.keyWindow;
-    gLayer = [CAMetalLayer layer];
-    gLayer.device = gDevice; gLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-    gLayer.framebufferOnly = NO; gLayer.opaque = NO;
-    gLayer.frame = w.bounds; gLayer.presentsWithTransaction = YES;
-    [w.layer addSublayer:gLayer];
-    calibrate();
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
-    ImGui::CreateContext(); applyTheme();
-    ImGui_ImplMetal_Init(gDevice);
-    
-    static dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-    dispatch_source_set_timer(t, dispatch_time(DISPATCH_TIME_NOW, 0), (1.0/60.0)*NSEC_PER_SEC, 0);
-    dispatch_source_set_event_handler(t, ^{ renderFrame(); });
-    dispatch_resume(t);
+    @try {
+        gDevice = MTLCreateSystemWideDevice();
+        if (!gDevice) return;
+        gQueue = [gDevice newCommandQueue];
+        if (!gQueue) return;
+        UIWindow *w = UIApplication.sharedApplication.keyWindow;
+        if (!w) return;
+        gLayer = [CAMetalLayer layer];
+        gLayer.device = gDevice; gLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+        gLayer.framebufferOnly = NO; gLayer.opaque = NO;
+        gLayer.frame = w.bounds; gLayer.presentsWithTransaction = NO;
+        [w.layer addSublayer:gLayer];
+        calibrate();
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
+        ImGui::CreateContext(); applyTheme();
+        if (!ImGui_ImplMetal_Init(gDevice)) { gLayer = nil; return; }
+        static dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(t, dispatch_time(DISPATCH_TIME_NOW, 0), (1.0/60.0)*NSEC_PER_SEC, 0);
+        dispatch_source_set_event_handler(t, ^{ renderFrame(); });
+        dispatch_resume(t);
+    } @catch (...) { gLayer = nil; gQueue = nil; }
 }
 
 %ctor {
     @autoreleasepool {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2*NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            installOverlay();
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3*NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            @try { installOverlay(); } @catch (...) {}
         });
     }
 }
