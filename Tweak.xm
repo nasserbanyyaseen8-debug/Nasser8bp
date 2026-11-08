@@ -91,22 +91,6 @@ static nsr::Rect findRenderViewFrame(UIView *v, UIView *root) {
     }
     return best;
 }
-static nsr::Rect scanFelt(UIView *root) {
-    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
-    fmt.scale = 1; // pixels == points for the scan buffer
-    UIGraphicsImageRenderer *ren = [[UIGraphicsImageRenderer alloc] initWithSize:root.bounds.size format:fmt];
-    UIImage *img = [ren imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
-        [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:NO];
-    }];
-    CGImageRef cg = img.CGImage; if (!cg) return nsr::Rect{};
-    size_t pw = CGImageGetWidth(cg), ph = CGImageGetHeight(cg);
-    std::vector<uint8_t> buf(pw * ph * 4);
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef c = CGBitmapContextCreate(buf.data(), pw, ph, 8, pw * 4, cs, kCGImageAlphaPremultipliedLast);
-    CGContextDrawImage(c, CGRectMake(0, 0, pw, ph), cg);
-    CGContextRelease(c); CGColorSpaceRelease(cs);
-    return nsr::feltScan(buf.data(), (int)pw, (int)ph, 1.0);
-}
 static void calibrate() {
     UIWindow *w = UIApplication.sharedApplication.keyWindow; if (!w) return;
     UIScreen *sc = [UIScreen mainScreen];
@@ -259,8 +243,6 @@ static void renderFrame() {
     [enc endEncoding]; [cb presentDrawable:dr]; [cb commit];
     } @catch (...) { /* never crash the host game */ }
 }
-static void linkTick(CADisplayLink *l) { renderFrame(); }
-
 // ---------------------------------------------------------------- install
 static void installOverlay() {
     @try {
