@@ -1,0 +1,46 @@
+name: Build NSR8BP dylib (ready to inject)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Link iOS SDK from Xcode
+        run: |
+          mkdir -p "$THEOS/sdks"
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          ln -s "$SDK" "$THEOS/sdks/iPhoneOS.sdk"
+          echo "using $SDK"
+
+      - name: Vendor ImGui (must exist before make)
+        run: |
+          mkdir -p vendor
+          git clone --depth 1 https://github.com/ocornut/imgui.git vendor/imgui
+          test -f vendor/imgui/backends/imgui_impl_metal.mm
+          echo "imgui ok"
+
+      - name: Build tweak
+        run: |
+          make FINALPACKAGE=1
+
+      - name: Collect injectable dylib
+        run: |
+          mkdir -p out
+          find .theos -name "NSR8BP.dylib" -exec cp {} out/ \;
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NSR8BP-injectable-dylib
+          path: out/NSR8BP.dylib
