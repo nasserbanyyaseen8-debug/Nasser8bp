@@ -11,6 +11,11 @@
 #include "src/Engine.hpp"
 #include "src/AutoBounds.hpp"
 
+// تعريف توافقية الإصدارات الحديثة لـ ImGui
+#ifndef ImGuiCol_TabActive
+#define ImGuiCol_TabActive ImGuiCol_HeaderActive
+#endif
+
 // ---------------------------------------------------------------- game adapter
 // Offsets must match the installed game version. Fill these (or the runtime
 // scanner) once; everything else (prediction/auto-play/menu) is version-agnostic.
@@ -226,8 +231,16 @@ static void renderFrame() {
     UIWindow *cw = UIApplication.sharedApplication.keyWindow;
     if (cw && (cw.bounds.size.width != gScreen.w || cw.bounds.size.height != gScreen.h)) calibrate();
     id<CAMetalDrawable> dr = [gLayer nextDrawable]; if (!dr) return;
-    ImGui_ImplMetal_NewFrame(dr.texture);
+    
+    // التعديل هنا: تمرير الـ RenderPassDescriptor الصحيح لـ ImGui في Xcode الحديث
+    MTLRenderPassDescriptor *renderPassDescriptor = [MTLRenderPassDescriptor renderPassDescriptor];
+    renderPassDescriptor.colorAttachments[0].texture = dr.texture;
+    renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    renderPassDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
+    
+    ImGui_ImplMetal_NewFrame(renderPassDescriptor);
     ImGui::NewFrame();
+    
     std::vector<nsr::Ball> balls = readState();
     // auto-play: choose via exact prediction, execute, never foul
     if (gAuto && !balls.empty() && !nsr::moving(balls)) {
@@ -243,11 +256,9 @@ static void renderFrame() {
     ImDrawList *dl = ImGui::GetBackgroundDrawList();
     drawPrediction(dl, balls);
     ImGui::Render();
+    
     id<MTLCommandBuffer> cb = [gQueue commandBuffer];
-    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-    rp.colorAttachments[0].texture = dr.texture;
-    rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
-    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:renderPassDescriptor];
     ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
     [enc endEncoding]; [cb presentDrawable:dr]; [cb commit];
 }
@@ -255,7 +266,8 @@ static void linkTick(CADisplayLink *l) { renderFrame(); }
 
 // ---------------------------------------------------------------- install
 static void installOverlay() {
-    gDevice = MTLCreateSystemWideDevice();
+    // التعديل هنا: استخدام الجهاز الافتراضي الصحيح لـ Metal لتتوافق مع Xcode الجديد
+    gDevice = MTLCreateSystemDefaultDevice();
     gQueue = [gDevice newCommandQueue];
     UIWindow *w = UIApplication.sharedApplication.keyWindow;
     gLayer = [CAMetalLayer layer];
@@ -268,7 +280,10 @@ static void installOverlay() {
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
     ImGui::CreateContext(); applyTheme();
     ImGui_ImplMetal_Init(gDevice);
-    gLink = [CADisplayLink displayLinkWithTarget:nil selector:nil];
+    
+    // التعديل هنا: تصحيح معاملات CADisplayLink لتجاوز أخطاء القيود الصارمة للمترجم
+    gLink = [CADisplayLink displayLinkWithTarget:(id)nil selector:(SEL)nil];
+    
     // use a block-based tick via objc wrapper
     static dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(t, dispatch_time(DISPATCH_TIME_NOW, 0), (1.0/60.0)*NSEC_PER_SEC, 0);
