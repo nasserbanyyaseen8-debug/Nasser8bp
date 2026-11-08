@@ -156,14 +156,38 @@ static void drawPrediction(ImDrawList *dl, const std::vector<nsr::Ball> &balls) 
     // cue path (white)
     if (r.paths.count(0)) {
         auto &p = r.paths[0];
-        for (size_t i = 1; i < p.size(); i++) dl->AddLine(P(p[i-1].x, p[i-1].y), P(p[i].x, p[i].y), IM_COL32(255,255,255,200), gLineWidth);
+        for (size_t i = 1; i < p.size(); i++) {
+            dl->AddLine(P(p[i-1].x, p[i-1].y), P(p[i].x, p[i].y), IM_COL32(255,255,255,200), gLineWidth);
+        }
     }
     int fc = r.firstContact;
     if (fc >= 0 && r.paths.count(fc)) {
         unsigned c = gColorLine ? nsr::COLORS[fc] : 0xffffff;
         ImU32 uc = IM_COL32((c>>16)&255,(c>>8)&255,c&255,255);
         auto &p = r.paths[fc];
-        for (size_t i = 1; i < p.size(); i++) dl->AddLine(P(p[i-1].x,p[i-1].y), P(p[i].x,p[i].y), uc, gLineWidth);
+        for (size_t i = 1; i < p.size(); i++) {
+            dl->AddLine(P(p[i-1].x,p[i-1].y), P(p[i].x,p[i].y), uc, gLineWidth);
+        }
         if (gGhost) {
-            for (auto &b : r.rest) if (b.id == fc && b.on) {
-                dl->AddCircle(P(b.x,b.y), nsr::R*gTf.scale, uc, 24, gLineWidth);      // stop circle, ball
+            for (auto &b : r.rest) {
+                if (b.id == fc && b.on) {
+                    dl->AddCircle(P(b.x,b.y), nsr::R*gTf.scale, uc, 24, gLineWidth);      // stop circle, ball-shaped
+                    dl->AddCircleFilled(P(b.x,b.y), nsr::R*gTf.scale*0.4f, (uc & 0x00ffffff) | 0x80000000);
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- menu (redesigned, reordered)
+static void drawMenu(const std::vector<nsr::Ball> &balls) {
+    ImGui::SetNextWindowSize(ImVec2(380, 540), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("NASSER 8BP", &gMenuOpen, ImGuiWindowFlags_NoCollapse)) { ImGui::End(); return; }
+    ImGui::TextColored(col(0xf0b429), "NASSER"); ImGui::SameLine(); ImGui::TextDisabled("8 Ball Pool");
+    ImGui::Separator(); ImGui::Spacing();
+    // mode buttons (new): Aggressive / Safe / Human
+    ImGui::TextDisabled("AUTO-PLAY MODE");
+    float bw = (ImGui::GetContentRegionAvail().x - 16) / 3;
+    const char *labels[3] = { "Fierce", "Safe", "Human" };
+    for (int i = 0; i < 3; i++) {
+        if (i
