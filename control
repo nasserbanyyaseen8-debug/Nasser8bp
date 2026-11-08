@@ -1,0 +1,9 @@
+Package: com.nasser.nsr8bp
+Name: NASSER 8BP
+Version: 2.0.0
+Architecture: iphoneos-arm64
+Description: Nasser 8 Ball Pool menu — exact prediction, foul-free fast auto-play.
+Author: Nasser
+Maintainer: Nasser
+Section: Tweaks
+Depends: mobilesubstrate
