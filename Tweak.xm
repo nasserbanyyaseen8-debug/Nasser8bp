@@ -222,8 +222,6 @@ static void renderFrame() {
     if (!gLayer || !gQueue) return;
     if (!ImGui::GetCurrentContext()) return;
     @try {
-    UIWindow *cw = UIApplication.sharedApplication.keyWindow;
-    if (cw && (cw.bounds.size.width != gScreen.w || cw.bounds.size.height != gScreen.h)) calibrate();
     id<CAMetalDrawable> dr = [gLayer nextDrawable]; if (!dr) return;
     MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
     rp.colorAttachments[0].texture = dr.texture;
@@ -279,6 +277,7 @@ static void installOverlay() {
         gLayer.device = gDevice; gLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         gLayer.framebufferOnly = NO; gLayer.opaque = NO;
         gLayer.frame = w.bounds; gLayer.presentsWithTransaction = NO;
+        gLayer.maximumDrawableCount = 3;
         [w.layer addSublayer:gLayer];
         calibrate();
         resolveGameOffsets(gOff);
@@ -286,12 +285,32 @@ static void installOverlay() {
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
         ImGui::CreateContext(); applyTheme();
         if (!ImGui_ImplMetal_Init(gDevice)) { gLayer = nil; return; }
-        static dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        // Render on a background serial queue so nextDrawable never blocks the
+        // game's main thread (the previous main-queue timer caused the login hang/crash).
+        static dispatch_queue_t rq = dispatch_queue_create("nsr.render", DISPATCH_QUEUE_SERIAL);
+        static dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, rq);
         dispatch_source_set_timer(t, dispatch_time(DISPATCH_TIME_NOW, 0), (1.0/60.0)*NSEC_PER_SEC, 0);
         dispatch_source_set_event_handler(t, ^{ renderFrame(); });
         dispatch_resume(t);
     } @catch (...) { gLayer = nil; gQueue = nil; }
 }
+
+// Forward touches to ImGui so the N toggle / mode / start buttons are clickable.
+%hook UIApplication
+- (void)sendEvent:(UIEvent *)event {
+    %orig;
+    @try {
+        if (!ImGui::GetCurrentContext()) return;
+        ImGuiIO &io = ImGui::GetIO();
+        for (UITouch *t in event.allTouches) {
+            CGPoint p = [t locationInView:nil];
+            io.AddMousePosEvent((float)p.x, (float)p.y);
+            if (t.phase == UITouchPhaseBegan) io.AddMouseButtonEvent(0, true);
+            else if (t.phase == UITouchPhaseEnded || t.phase == UITouchPhaseCancelled) io.AddMouseButtonEvent(0, false);
+        }
+    } @catch (...) {}
+}
+%end
 
 %ctor {
     @autoreleasepool {
