@@ -16,9 +16,9 @@ NSR8BP_FILES = Tweak.xm \
 	vendor/imgui/backends/imgui_impl_metal.mm
 
 NSR8BP_CFLAGS = -fobjc-arc -std=c++17 -Ivendor/imgui -Ivendor/imgui/backends -Isrc \
-	-Wno-deprecated-declarations -Wno-unused-function
+	-Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable
 NSR8BP_CCFLAGS = -std=c++17 -Ivendor/imgui -Ivendor/imgui/backends -Isrc \
-	-Wno-deprecated-declarations -Wno-unused-function
+	-Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable
 NSR8BP_FRAMEWORKS = UIKit Foundation Metal MetalKit QuartzCore CoreGraphics
 NSR8BP_LIBRARIES = c++
 
