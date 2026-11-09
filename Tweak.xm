@@ -29,6 +29,7 @@ struct Offsets {
     bool valid() const { return ballArray && ballX && ballY && cueAngle && cuePower; }
 };
 static Offsets gOff;
+#include "src/GameOffsets.hpp"
 
 static std::vector<nsr::Ball> readState() {
     std::vector<nsr::Ball> out;
@@ -280,6 +281,7 @@ static void installOverlay() {
         gLayer.frame = w.bounds; gLayer.presentsWithTransaction = NO;
         [w.layer addSublayer:gLayer];
         calibrate();
+        resolveGameOffsets(gOff);
         [[NSNotificationCenter defaultCenter] addObserverForName:UIDeviceOrientationDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) { calibrate(); }];
         ImGui::CreateContext(); applyTheme();
