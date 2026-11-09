@@ -15,6 +15,7 @@
 #pragma once
 #include <objc/runtime.h>
 #include <objc/message.h>
+#include <cstdlib>
 #include <cstring>
 #include <cctype>
 #include <string>
