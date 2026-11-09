@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
@@ -15,10 +15,6 @@ jobs:
         run: |
           git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
-
-      - name: Install ldid (Sign Tool)
-        run: |
-          brew install ldid
 
       - name: Link iOS SDK from Xcode
         run: |
@@ -38,12 +34,10 @@ jobs:
         run: |
           make FINALPACKAGE=1
 
-      - name: Collect injectable dylib (exclude dSYM debug companion)
+      - name: Collect injectable dylib
         run: |
           mkdir -p out
-          find .theos -name "NSR8BP.dylib" -not -path "*.dSYM*" -exec cp {} out/ \;
-          ldid -S out/NSR8BP.dylib
-          file out/NSR8BP.dylib
+          find .theos -name "NSR8BP.dylib" -exec cp {} out/ \;
           ls -la out
 
       - uses: actions/upload-artifact@v4
