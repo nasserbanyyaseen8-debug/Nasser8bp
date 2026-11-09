@@ -73,7 +73,7 @@ static void resolveGameOffsets(Offsets& g) {
         const char* ballCls[] = { "MCBall", "BPBall", "Ball" };
         Class bc = nsrFindClass(ballCls, 3);
         if (bc) {
-            uintptr_t px = 0, py = 0;
+            uintptr_t px = 0;
             if (nsrIvarOffset(bc, "position", px)) { g.ballX = px; g.ballY = px + 8; }
             else { nsrIvarOffset(bc, "posx", g.ballX); nsrIvarOffset(bc, "posy", g.ballY);
                    if (!g.ballX) nsrIvarOffset(bc, "_x", g.ballX);
